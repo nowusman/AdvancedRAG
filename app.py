@@ -117,7 +117,6 @@ def main():
     query = st.text_input("Enter the query:")
     if st.button("Retrieve"):
         file_filter = extract_file_filter(query)
-        print(f'File filter: {file_filter}')
         if not file_filter:
             if st.session_state['retriever'] and (not st.session_state['db_update']):
                 retriever = st.session_state['retriever']
@@ -129,7 +128,6 @@ def main():
         else:
             retriever = IntelligentRetriever(MONGO_URI, DB_NAME, COLLECTION_NAME, PERSIST_DIR, INDEX_INFO_PATH)
             retriever.build_retriever(file_filter)
-        print('Retriever ready.')
         if retriever==None:
             st.warning('No retriever created.')
         else:
@@ -140,14 +138,12 @@ def main():
                 retrieved_image = []
                 for res_node in retrieved_nodes:
                     if isinstance(res_node.node, ImageNode):
-                        # retrieved_image.append(res_node.node.metadata["file_path"])
                         retrieved_image.append(res_node.node)
                     else:
                         st.write(res_node)
                 if len(retrieved_image)>0:
                     cols = st.columns(len(retrieved_image))
                     for col, img_node in zip(cols, retrieved_image):
-                        # img = Image.open(path)
                         img = Image.open(BytesIO(base64.b64decode(img_node.image)))
                         path = img_node.metadata["file_path"]
                         img_name = path.split('/')[-1].split('\\')[-1]

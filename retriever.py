@@ -28,16 +28,40 @@ from llama_index.core.response.notebook_utils import display_source_node
 from llama_index.core.schema import ImageNode
 import base64
 
-load_dotenv()
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
-EMBED_MODEL_PATH = os.getenv('EMBED_MODEL_PATH')
-embed_model = HuggingFaceEmbedding(model_name=EMBED_MODEL_PATH)
-openai_mm_llm = OpenAIMultiModal(
-    model="gpt-4o-mini", api_key=OPENAI_API_KEY, max_new_tokens=1500
+# Import model manager for lazy loading
+from model_manager import ModelManager
+
+# Import constants
+from constants import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_SIMILARITY_TOP_K,
+    IMAGE_DESCRIPTION_PROMPT,
+    MONGODB_DATA_SUFFIX,
+    MONGODB_INDEX_NAMESPACE
 )
-RETRIEVER_MODEL = os.getenv('RETRIEVER_MODEL')
-llm = OpenAI(model=RETRIEVER_MODEL)
+
+# Import logging
+from logging_config import get_logger
+
+logger = get_logger(__name__)
+
+load_dotenv()
+
+# Use ModelManager for lazy loading of models instead of module-level loading
+model_manager = ModelManager.get_instance()
+
+# Helper functions to get models (for backward compatibility)
+def get_embed_model():
+    """Get embedding model from model manager."""
+    return model_manager.get_embed_model()
+
+def get_openai_mm_llm():
+    """Get OpenAI multimodal LLM from model manager."""
+    return model_manager.get_openai_mm_llm()
+
+def get_llm():
+    """Get LLM from model manager."""
+    return model_manager.get_llm()
 
 class MongoDBChecker:
     def __init__(self, MONGO_URI, DB_NAME):
@@ -95,7 +119,9 @@ class MongoDBCollectionManager:
                 persist_dir=self.PERSIST_DIR
             )
 
-    def upload_files_from_filelist_nonimage(self, file_path, embed_model=embed_model):
+    def upload_files_from_filelist_nonimage(self, file_path, embed_model=None):
+        if embed_model is None:
+            embed_model = get_embed_model()
         txt_paths = []
         docling_paths = []
         for file in file_path:
@@ -133,7 +159,7 @@ class MongoDBCollectionManager:
             return('No nodes extracted!')
         else:
             self.storage_context.docstore.add_documents(nodes)
-            print('Uploaded files to MongoDB!')
+            logger.info('Uploaded files to MongoDB')
             ### check index existence
             try:
                 with open(self.INDEX_INFO_PATH, 'r') as f:
@@ -162,9 +188,13 @@ class MongoDBCollectionManager:
 
             with open(self.INDEX_INFO_PATH, 'w') as f:
                 json.dump(index_info, f, indent=4)
-            print('Created/updated indexes!')
+            logger.info('Created/updated indexes')
     
-    def upload_images_from_filelist(self, file_path, openai_mm_llm=llm, embed_model=embed_model):
+    def upload_images_from_filelist(self, file_path, openai_mm_llm=None, embed_model=None):
+        if embed_model is None:
+            embed_model = get_embed_model()
+        if openai_mm_llm is None:
+            openai_mm_llm = get_llm()
         save_folder = os.path.join(self.IMAGE_FOLDER, self.data_collection)
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
@@ -179,7 +209,6 @@ class MongoDBCollectionManager:
             image_name = file.split('/')[-1].split('.')[0].split("\\")[-1]
             if not os.path.exists(f'{save_folder}/{file.split("/")[-1].split("\\")[-1]}'):
                 image = Image.open(file)
-                # image.save(f'{save_folder}/{file.split('/')[-1].split("\\")[-1]}')
                 image.save(str(save_folder)+'/'+str(file.split('/')[-1].split("\\")[-1]))
             if not os.path.exists(f'{save_folder}/{image_name}.txt'):
                 image_doc = SimpleDirectoryReader(input_files=[file]).load_data()
@@ -189,7 +218,7 @@ class MongoDBCollectionManager:
                         role="user",
                         blocks=[
                             ImageBlock(path=file),
-                            TextBlock(text="Extract the contents in the image. Do not add other thins."),
+                            TextBlock(text=IMAGE_DESCRIPTION_PROMPT),
                         ],
                     )
                 ]
@@ -197,16 +226,10 @@ class MongoDBCollectionManager:
                 resp = openai_mm_llm.chat(messages)
                 with open(f'{save_folder}/{image_name}.txt', 'w', encoding='utf-8') as f:
                     f.write(resp.message.content)
-                # image_desc = openai_mm_llm.complete(
-                #     prompt="Extract the contents in the image. Do not add other thins.",
-                #     # image_documents=image_doc,
-                # )
-                # with open(f'{save_folder}/{image_name}.txt', 'w', encoding='utf-8') as f:
-                #     f.write(image_desc.text)
             
             mixed_files.append(f'{save_folder}/{file.split('/')[-1].split("\\")[-1]}')
             mixed_files.append(f'{save_folder}/{image_name}.txt')
-        print('Image docs ready.')
+        logger.info('Image docs ready')
 
         documents = SimpleDirectoryReader(input_files=mixed_files).load_data()
         simple_parser = SimpleFileNodeParser(chunk_size=1000000, chunk_overlap=0)
@@ -219,7 +242,7 @@ class MongoDBCollectionManager:
                 temp_node.image = image_base64
 
         self.storage_context.docstore.add_documents(nodes)
-        print('Uploaded images to MongoDB!')
+        logger.info('Uploaded images to MongoDB')
         
         text_nodes = [n for n in nodes if not isinstance(n,ImageNode)]
         if (f'{self.data_collection}_vector_index' in index_info.keys()):
@@ -260,9 +283,13 @@ class MongoDBCollectionManager:
                
         with open(self.INDEX_INFO_PATH, 'w') as f:
             json.dump(index_info, f, indent=4)
-        print('Created/updated image indexes!')
+        logger.info('Created/updated image indexes')
             
-    def upload_file(self, file_path, embed_model=embed_model, openai_mm_llm=openai_mm_llm):
+    def upload_file(self, file_path, embed_model=None, openai_mm_llm=None):
+        if embed_model is None:
+            embed_model = get_embed_model()
+        if openai_mm_llm is None:
+            openai_mm_llm = get_openai_mm_llm()
         if type(file_path)==list:
             if len(file_path)==0:
                 return('No files selected.')
@@ -341,11 +368,11 @@ class MongoDBCollectionManager:
                                 index_info = json.load(f)
                             for ref_id in ref_doc_ids:
                                 self.storage_context.docstore.delete_ref_doc(ref_id)
-                            print(f'{fn} deleted from Docstore!')
+                            logger.info(f'{fn} deleted from Docstore')
                             for ref_id in ref_doc_ids:
                                 self.storage_context.vector_store.delete(ref_id)
                             self.storage_context.persist()
-                            print(f'{fn} deleted from Vector Store!')
+                            logger.info(f'{fn} deleted from Vector Store')
                             index_structs = self.storage_context.index_store.index_structs()
                             for index_struct in index_structs:
                                 index_id = index_struct.index_id
@@ -364,7 +391,7 @@ class MongoDBCollectionManager:
                                     else:
                                         self.delete_single_index(index_id)
 
-                            print(f'Nodes of {fn} deleted from Index Store!')
+                            logger.info(f'Nodes of {fn} deleted from Index Store')
                         except Exception as e:
                             return(f'[File Deletion Error]: {e}')
             return(f'Deleted: {fns} from {self.data_collection}')
@@ -384,12 +411,12 @@ class MongoDBCollectionManager:
                 db.drop_collection(f"{self.data_collection}/data")
                 db.drop_collection(f"{self.data_collection}/metadata")
                 db.drop_collection(f"{self.data_collection}/ref_doc_info")
-                print(f'Deleted {self.data_collection} docstore.')
+                logger.info(f'Deleted {self.data_collection} docstore')
                 # delete vectorstore
                 for ref_id in all_ref_doc_info.keys():
                     self.storage_context.vector_store.delete(ref_id)
                 self.storage_context.persist()
-                print(f'Deleted relevant info in {self.data_collection} vectorstore.')
+                logger.info(f'Deleted relevant info in {self.data_collection} vectorstore')
                 # delete indexes
                 with open(self.INDEX_INFO_PATH, 'r') as f:
                     index_info = json.load(f)
@@ -403,7 +430,7 @@ class MongoDBCollectionManager:
                 if f'{self.data_collection}_multimodal_index' in index_info.keys():
                     index_id = index_info[f'{self.data_collection}_multimodal_index']
                     self.delete_single_index(index_id)    
-                print(f'Deleted nodes in {self.data_collection} indexstore.')
+                logger.info(f'Deleted nodes in {self.data_collection} indexstore')
             except Exception as e:
                 return(f'[Collection Deletion Error]: {e}')
         return(f'Deleted {self.data_collection}.')
@@ -433,7 +460,11 @@ class IntelligentRetriever:
         )
         self.retriever = None
 
-    def build_retriever(self, file_filter, embed_model=embed_model, llm=llm):
+    def build_retriever(self, file_filter, embed_model=None, llm=None):
+        if embed_model is None:
+            embed_model = get_embed_model()
+        if llm is None:
+            llm = get_llm()
         try:
             with open(self.INDEX_INFO_PATH, 'r') as f:
                 index_info = json.load(f)
@@ -526,8 +557,6 @@ class IntelligentRetriever:
             )
             self.retriever = retriever
             ########################################3
-            print(retriever)
-            print(llm)
             ########################################3
 
             if self.retriever==None:
@@ -570,4 +599,3 @@ class IntelligentRetriever:
                 display_source_node(res_node, source_length=200)
         if len(retrieved_image)>0:
             self.plot_images(retrieved_image)
-

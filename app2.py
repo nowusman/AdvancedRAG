@@ -61,12 +61,9 @@ def main():
                             st.write(f"📄 {file['file_name']}")
                         with col2:
                             if st.button("❌", key=f"del_{collection}_{file}"):
-                                # msg = db_manager.delete_files([file])
                                 msg = weaviateCollectionManager.delete_file(collection, file['file_path'])
                                 st.session_state['db_update'] = True
                                 st.success('Deleted')
-
-    # st.sidebar.markdown("---")  # separator
 
     st.sidebar.subheader("Upload File(s)")
     uploaded_files = st.sidebar.file_uploader("Select file(s) to upload", accept_multiple_files=True)
@@ -81,8 +78,6 @@ def main():
                 with open(temp_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 file_paths.append(temp_path)
-
-            print(file_paths)
             
             msg = weaviateRetriever.main_upload(COLLECTION_NAME, UPLOAD_FOLDER, file_paths)
             st.sidebar.success(msg)
@@ -119,64 +114,23 @@ def main():
         file_filter = weaviateRetriever.extract_file_filter(query)
         print(f'File filter: {file_filter}')
 
-        ### bm25 query
         response = weaviateRetriever.search_bm25(COLLECTION_NAME, query)
-        # st.write(res)
         retrieved_image = []
         for o in response:
             st.write(o.properties)
-            # print(o.properties)
 
-            print(o.properties["_node_type"])
             if o.properties["_node_type"] == "ImageNode":
-                  # retrieved_image.append(res_node.node.metadata["file_path"])
                 retrieved_image.append(o.properties)
-            else:
-                pass
-                # st.write(res_node)
 
         if len(retrieved_image)>0:
             import json
-            # for obj in retrieved_image:
             cols = st.columns(len(retrieved_image))
             for col, obj in zip(cols, retrieved_image):
-
                 info = json.loads(obj["_node_content"])
-
-                # img = Image.open(path)
                 img = Image.open(BytesIO(base64.b64decode(info["image"])))
                 path = info["metadata"]["file_path"]
-                print(path)
                 img_name = path.split('/')[-1].split('\\')[-1]
                 col.image(img, caption=img_name, use_container_width=True)
-
-        ### bm25 query end
-        ### openai query
-        # response = weaviateRetriever.main_query(COLLECTION_NAME, query)
-        # st.write(response)
-
-        # retrieved_nodes = response.source_nodes
-        # retrieved_image = []
-        # for res_node in retrieved_nodes:
-        #     if isinstance(res_node.node, ImageNode):
-        #             # retrieved_image.append(res_node.node.metadata["file_path"])
-        #         retrieved_image.append(res_node.node)
-        #     else:
-        #          pass
-        #          # st.write(res_node)
-        # if len(retrieved_image)>0:
-        #     print(retrieved_image)
-        #     cols = st.columns(len(retrieved_image))
-        #     for col, img_node in zip(cols, retrieved_image):
-        #         print('img_node--')
-        #         print(img_node)
-
-        #         # img = Image.open(path)
-        #         img = Image.open(BytesIO(base64.b64decode(img_node.image)))
-        #         path = img_node.metadata["file_path"]
-        #         img_name = path.split('/')[-1].split('\\')[-1]
-        #         col.image(img, caption=img_name, use_container_width=True)
-        ### openai query end
 
 if __name__ == "__main__":
     main()
