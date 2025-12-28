@@ -551,13 +551,10 @@ class IntelligentRetriever:
                 tools.append(multimodal_tool)
 
             retriever = RouterRetriever(
-                # selector=PydanticMultiSelector.from_defaults(llm=llm),
                 selector=PydanticSingleSelector.from_defaults(llm=llm),
                 retriever_tools=tools
             )
             self.retriever = retriever
-            ########################################3
-            ########################################3
 
             if self.retriever==None:
                 return('Retriever cannot be built.')
