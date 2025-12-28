@@ -7,6 +7,10 @@ from dotenv import load_dotenv
 from typing import List, Dict, Any
 import pandas as pd
 
+from logging_config import get_logger
+
+logger = get_logger(__name__)
+
 # 
 load_dotenv()
 
@@ -67,7 +71,7 @@ class WeaviateCollectionManager:
             return files_info
             
         except Exception as e:
-            print(f"Error occurred while retrieving uploaded files: {str(e)}")
+            logger.error(f"Error occurred while retrieving uploaded files: {str(e)}")
             return []
     
     def get_file_chunks(self, class_name: str, file_path: str) -> List[Dict[str, Any]]:
@@ -106,7 +110,7 @@ class WeaviateCollectionManager:
             return chunks_info
             
         except Exception as e:
-            print(f"Error occurred while obtaining file text block: {str(e)}")
+            logger.error(f"Error occurred while obtaining file text block: {str(e)}")
             return []
     
     def get_collection_stats(self, class_name: str = "Documents_llama") -> Dict[str, Any]:
@@ -150,7 +154,7 @@ class WeaviateCollectionManager:
             }
             
         except Exception as e:
-            print(f"Error occurred while obtaining file text block: {str(e)}")
+            logger.error(f"Error occurred while obtaining file text block: {str(e)}")
             return {}
     
     def display_uploaded_files(self, class_name: str = "Documents_llama"):
@@ -164,13 +168,13 @@ class WeaviateCollectionManager:
         files_info = self.get_uploaded_files(class_name)
         
         if not files_info:
-            print(f"There are no files in the collection '{class_name}' or the collection does not exist")
+            logger.warning(f"There are no files in the collection '{class_name}' or the collection does not exist")
             return
         
         # Create tables using pandas
         df = pd.DataFrame(files_info)
-        print(f"\nThe files that uploaded to the collection '{class_name}' :")
-        print(df.to_string(index=False))
+        logger.info(f"Files uploaded to the collection '{class_name}':")
+        logger.info(f"\n{df.to_string(index=False)}")
         
         # return files_info
 
@@ -195,11 +199,11 @@ class WeaviateCollectionManager:
     def delete_collection(self, class_name):
         if self.client.collections.exists(class_name):
             self.client.collections.delete(class_name)
-            print(f'Collection {class_name} has been deleted!')
+            logger.info(f'Collection {class_name} has been deleted!')
             return(f'Collection {class_name} has been deleted!')
         elif not self.client.collections.exists(class_name):
-            print(f'Collection {class_name} is not exists!')
-            return(f'Collection {class_name} is not exists!')
+            logger.warning(f'Collection {class_name} does not exist!')
+            return(f'Collection {class_name} does not exist!')
 
     def delete_file_objects(self, class_name: str, file_path: str) -> int:
         """
@@ -212,7 +216,7 @@ class WeaviateCollectionManager:
         """
         try:
             if not self.client.collections.exists(class_name):
-                print(f'Collection {class_name} has been deleted!')
+                logger.warning(f'Collection {class_name} does not exist!')
                 return 0
             
             collection = self.client.collections.get(class_name)
@@ -230,7 +234,7 @@ class WeaviateCollectionManager:
             object_ids = [obj.uuid for obj in response.objects]
             
             if not object_ids:
-                print(f"File '{file_path}' is not exists in collection '{class_name}'")
+                logger.warning(f"File '{file_path}' does not exist in collection '{class_name}'")
                 return 0
             
             # batch delete
@@ -240,13 +244,13 @@ class WeaviateCollectionManager:
                     collection.data.delete_by_id(obj_id)
                     deleted_count += 1
                 except Exception as e:
-                    print(f"delete {obj_id} error: {str(e)}")
+                    logger.error(f"Failed to delete object {obj_id}: {str(e)}")
             
-            print(f"Success delete '{file_path}' object count: {deleted_count}")
+            logger.info(f"Successfully deleted {deleted_count} objects for file '{file_path}'")
             return deleted_count
             
         except Exception as e:
-            print(f"delete '{file_path}' error: {str(e)}")
+            logger.error(f"Error deleting file '{file_path}': {str(e)}")
             raise
 
 def delete_collection(class_name):

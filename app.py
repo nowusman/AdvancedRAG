@@ -9,6 +9,7 @@ import base64
 from io import BytesIO
 import torch
 from retriever import MongoDBChecker, MongoDBCollectionManager, extract_file_filter, IntelligentRetriever
+from constants import FILE_UPLOAD_FOLDER
 
 torch.classes.__path__ = []         # set to avoid error about torch when using streamlit
 
@@ -75,18 +76,17 @@ def main():
     uploaded_files = st.sidebar.file_uploader("Select file(s) to upload", accept_multiple_files=True)
     if st.sidebar.button("Upload"):
         if uploaded_files:
-            UPLOAD_FOLDER = "uploads"
-            if not os.path.exists(UPLOAD_FOLDER):
-                os.makedirs(UPLOAD_FOLDER)
+            if not os.path.exists(FILE_UPLOAD_FOLDER):
+                os.makedirs(FILE_UPLOAD_FOLDER)
             file_paths = []
             for uploaded_file in uploaded_files:
-                temp_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
+                temp_path = os.path.join(FILE_UPLOAD_FOLDER, uploaded_file.name)
                 with open(temp_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 file_paths.append(temp_path)
             db_manager = MongoDBCollectionManager(MONGO_URI, DB_NAME, COLLECTION_NAME, PERSIST_DIR, IMAGE_FOLDER, INDEX_INFO_PATH)
             msg = db_manager.upload_file(file_paths)
-            shutil.rmtree(UPLOAD_FOLDER)
+            shutil.rmtree(FILE_UPLOAD_FOLDER)
             st.session_state['db_update'] = True
             st.sidebar.success(msg)
         else:

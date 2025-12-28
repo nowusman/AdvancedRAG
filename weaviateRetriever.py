@@ -20,10 +20,17 @@ import re
 import requests
 import torch
 import openai
-# import logging
 
-# logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-# logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
+from logging_config import get_logger
+from constants import (
+    DEFAULT_SIMILARITY_TOP_K,
+    RETRIEVAL_WINDOW_SIZE,
+    IMAGE_DESCRIPTION_PROMPT,
+    OPENAI_MODEL_GPT4O_MINI,
+    FILE_FILTER_PATTERN
+)
+
+logger = get_logger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -41,7 +48,7 @@ class WeaviateAutoRetriever:
         self.setup_openai_with_proxy()
         # Initialize LLM
         self.llm = OpenAI(
-            model="gpt-4o-mini",
+            model=OPENAI_MODEL_GPT4O_MINI,
             api_key=os.getenv("OPENAI_API_KEY"),
             timeout=30.0,
             max_retries=2
@@ -60,16 +67,15 @@ class WeaviateAutoRetriever:
         proxy_url = os.environ.get('http_proxy') or os.environ.get('https_proxy')
         
         if proxy_url:
-            # print(f"Set proxy: {proxy_url}")
-            print(f"Set proxy success")
+            logger.info("Proxy configured successfully")
             
             try:
                 openai.proxy = proxy_url
             except AttributeError:
-                print("Set openai proxy error")
+                logger.warning("Failed to set openai proxy")
             
         else:
-            print("Proxy settings not detected")
+            logger.info("No proxy settings detected")
 
     # def get_supported_files(directory_path):
     #     """get all supported files"""
@@ -137,7 +143,7 @@ class WeaviateAutoRetriever:
         
         # 
         node_parser = SentenceWindowNodeParser.from_defaults(
-            window_size=3,
+            window_size=RETRIEVAL_WINDOW_SIZE,
             window_metadata_key="window",
             original_text_metadata_key="original_text",
         )
@@ -155,8 +161,7 @@ class WeaviateAutoRetriever:
         )
         documents = reader.load_data()
 
-        print('load_and_process_documents2--------')
-        # print(documents)
+        logger.debug("Processing documents from load_and_process_documents2")
         
         # set meta data for doc
         for doc in documents:
@@ -166,14 +171,13 @@ class WeaviateAutoRetriever:
         
         # 
         node_parser = SentenceWindowNodeParser.from_defaults(
-            window_size=3,
+            window_size=RETRIEVAL_WINDOW_SIZE,
             window_metadata_key="window",
             original_text_metadata_key="original_text",
         )
         
         nodes = node_parser.get_nodes_from_documents(documents)
-        print('docs nodes--------')
-        print(nodes)
+        logger.debug(f"Generated {len(nodes)} document nodes")
         return nodes
     
     
@@ -197,8 +201,7 @@ class WeaviateAutoRetriever:
 
         parser = LangchainNodeParser(RecursiveCharacterTextSplitter(separators='#'))
         nodes = parser.get_nodes_from_documents(docling_docs)
-        print('docs nodes--------')
-        print(nodes)
+        logger.debug(f"Generated {len(nodes)} PDF nodes from docling")
         return nodes
 
     def load_and_process_images(self, directory_path, file_path, data_collection):
@@ -233,7 +236,7 @@ class WeaviateAutoRetriever:
             
             mixed_files.append(f'{save_folder}/{file.split('/')[-1].split("\\")[-1]}')
             mixed_files.append(f'{save_folder}/{image_name}.txt')
-        print('Image docs ready.')
+        logger.info("Image documents prepared successfully")
 
 
         # Loading files in multiple formats using SimpleCatalogReader
@@ -271,8 +274,7 @@ class WeaviateAutoRetriever:
                 img_path = temp_node.metadata['file_path']
                 image_base64 = image_to_base64(img_path)
                 temp_node.image = image_base64
-        print('image nodes--------')
-        print(nodes)
+        logger.debug(f"Generated {len(nodes)} image nodes")
         
         return nodes
 
@@ -305,7 +307,7 @@ class WeaviateAutoRetriever:
         retriever = VectorIndexAutoRetriever(
             index,
             vector_store_info=vector_store_info,
-            similarity_top_k=3
+            similarity_top_k=DEFAULT_SIMILARITY_TOP_K
         )
         
         return retriever
@@ -374,7 +376,7 @@ class WeaviateAutoRetriever:
         #     embed_model=self.embed_model
         # )
         
-        print(f"Uploaded {len(nodes)} nodes to Weaviate successfully")
+        logger.info(f"Successfully uploaded {len(nodes)} nodes to Weaviate")
         # return index
     
     def query_documents(self, query, class_name="Documents_llama", use_auto_retriever=True):
@@ -392,8 +394,7 @@ class WeaviateAutoRetriever:
         )
         
         if use_auto_retriever:
-            print("use_auto_retriever")
-            print(self.llm)
+            logger.debug("Using auto retriever mode")
             # Using automatic retriever
             retriever = self.create_auto_retriever(index)
             query_engine = RetrieverQueryEngine.from_args(
@@ -409,7 +410,7 @@ class WeaviateAutoRetriever:
             query_engine = index.as_query_engine(
                 vector_store_query_mode="hybrid",
                 alpha=0.5,  # Mixed search weight
-                similarity_top_k=3,
+                similarity_top_k=DEFAULT_SIMILARITY_TOP_K,
                 node_postprocessors=[
                     MetadataReplacementPostProcessor(target_metadata_key="window")
                 ],
@@ -450,13 +451,13 @@ def main_query(collection_name, query):
         response = retriever.query_documents(query, collection_name, use_auto_retriever=True)
         # response = retriever.query_documents(query, collection_name, use_auto_retriever=False)
         
-        print(f"QUERY: {query}")
-        print(f"ANSWER: {response}")
+        logger.info(f"Query: {query}")
+        logger.info(f"Response generated successfully")
         
         # # Show Source document
-        print("\nSource document:")
+        logger.debug("Source documents:")
         for node in response.source_nodes:
-            print(f"- {node.metadata.get('file_path', 'unknown file')} (similarity: {node.score:.3f})")
+            logger.debug(f"- {node.metadata.get('file_path', 'unknown file')} (similarity: {node.score:.3f})")
         
         return response    
 
