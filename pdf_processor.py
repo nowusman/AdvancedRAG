@@ -14,7 +14,6 @@ MAX_TOKEN = 2048
 
 try:
     from transformers import AutoProcessor, AutoModelForVision2Seq
-    # from huggingface_hub import login
     transformers_available = True
 except ImportError:
     transformers_available = False

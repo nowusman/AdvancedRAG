@@ -6,9 +6,10 @@ import weaviate.collections.classes.filters as filters
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 import pandas as pd
+import logging
 
-# 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 class WeaviateCollectionManager:
     def __init__(self):
@@ -67,7 +68,7 @@ class WeaviateCollectionManager:
             return files_info
             
         except Exception as e:
-            print(f"Error occurred while retrieving uploaded files: {str(e)}")
+            logger.error("Error retrieving uploaded files from %s: %s", class_name, str(e))
             return []
     
     def get_file_chunks(self, class_name: str, file_path: str) -> List[Dict[str, Any]]:
@@ -106,7 +107,7 @@ class WeaviateCollectionManager:
             return chunks_info
             
         except Exception as e:
-            print(f"Error occurred while obtaining file text block: {str(e)}")
+            logger.error("Error obtaining file chunks for %s: %s", file_path, str(e))
             return []
     
     def get_collection_stats(self, class_name: str = "Documents_llama") -> Dict[str, Any]:
@@ -150,7 +151,7 @@ class WeaviateCollectionManager:
             }
             
         except Exception as e:
-            print(f"Error occurred while obtaining file text block: {str(e)}")
+            logger.error("Error obtaining collection stats for %s: %s", class_name, str(e))
             return {}
     
     def display_uploaded_files(self, class_name: str = "Documents_llama"):
@@ -159,47 +160,34 @@ class WeaviateCollectionManager:
         
         Args:
             class_name: Weaviate collection
+        
+        Returns:
+            dict: Dictionary mapping collection name to files info
         """
-        # 
         files_info = self.get_uploaded_files(class_name)
         
         if not files_info:
-            print(f"There are no files in the collection '{class_name}' or the collection does not exist")
-            return
+            logger.warning("No files in collection '%s' or collection does not exist", class_name)
+            return {}
         
-        # Create tables using pandas
         df = pd.DataFrame(files_info)
-        print(f"\nThe files that uploaded to the collection '{class_name}' :")
-        print(df.to_string(index=False))
-        
-        # return files_info
+        logger.info("Files in collection '%s':\n%s", class_name, df.to_string(index=False))
 
-        db_docs = {}
-        db_docs[class_name] = files_info
-        return db_docs
-
-        # # Display statistical information
-        # stats = self.get_collection_stats(class_name)
-        # if stats:
-        #     print(f"\nCollection statistics:")
-        #     print(f"Total number of objects: {stats.get('total_objects', 0)}")
-        #     print(f"Total number of files: {stats.get('total_files', 0)}")
-        #     print("File type statistics:")
-        #     for file_type, count in stats.get('file_type_stats', {}).items():
-        #         print(f"  {file_type}: {count}")
+        return {class_name: files_info}
     
     def close(self):
         """close connection"""
         self.client.close()
 
     def delete_collection(self, class_name):
+        """Delete a Weaviate collection"""
         if self.client.collections.exists(class_name):
             self.client.collections.delete(class_name)
-            print(f'Collection {class_name} has been deleted!')
-            return(f'Collection {class_name} has been deleted!')
-        elif not self.client.collections.exists(class_name):
-            print(f'Collection {class_name} is not exists!')
-            return(f'Collection {class_name} is not exists!')
+            logger.info("Collection '%s' deleted successfully", class_name)
+            return f'Collection {class_name} has been deleted!'
+        else:
+            logger.warning("Collection '%s' does not exist", class_name)
+            return f'Collection {class_name} does not exist!'
 
     def delete_file_objects(self, class_name: str, file_path: str) -> int:
         """
@@ -212,41 +200,37 @@ class WeaviateCollectionManager:
         """
         try:
             if not self.client.collections.exists(class_name):
-                print(f'Collection {class_name} has been deleted!')
+                logger.warning("Collection '%s' does not exist", class_name)
                 return 0
             
             collection = self.client.collections.get(class_name)
             
-            # retrieve all obj
             response = collection.query.fetch_objects(
-                # filters=wvcc.Filter.by_property("file_path").equal(file_path),
                 filters=filters.Filter.by_property("file_path").equal(file_path),
                 include_vector=False,
                 return_properties=[],  
                 limit=1000  
             )
             
-            # get obj ID
             object_ids = [obj.uuid for obj in response.objects]
             
             if not object_ids:
-                print(f"File '{file_path}' is not exists in collection '{class_name}'")
+                logger.warning("File '%s' not found in collection '%s'", file_path, class_name)
                 return 0
             
-            # batch delete
             deleted_count = 0
             for obj_id in object_ids:
                 try:
                     collection.data.delete_by_id(obj_id)
                     deleted_count += 1
                 except Exception as e:
-                    print(f"delete {obj_id} error: {str(e)}")
+                    logger.error("Failed to delete object %s: %s", obj_id, str(e))
             
-            print(f"Success delete '{file_path}' object count: {deleted_count}")
+            logger.info("Deleted %d objects for file '%s'", deleted_count, file_path)
             return deleted_count
             
         except Exception as e:
-            print(f"delete '{file_path}' error: {str(e)}")
+            logger.error("Error deleting file '%s': %s", file_path, str(e))
             raise
 
 def delete_collection(class_name):

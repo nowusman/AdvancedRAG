@@ -20,10 +20,9 @@ import re
 import requests
 import torch
 import openai
-# import logging
+import logging
 
-# logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-# logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -60,34 +59,18 @@ class WeaviateAutoRetriever:
         proxy_url = os.environ.get('http_proxy') or os.environ.get('https_proxy')
         
         if proxy_url:
-            # print(f"Set proxy: {proxy_url}")
-            print(f"Set proxy success")
+            logger.info("OpenAI proxy configured successfully")
             
             try:
                 openai.proxy = proxy_url
             except AttributeError:
-                print("Set openai proxy error")
+                logger.warning("Failed to set OpenAI proxy attribute")
             
         else:
-            print("Proxy settings not detected")
-
-    # def get_supported_files(directory_path):
-    #     """get all supported files"""
-    #     supported_extensions = ['.txt', '.docx', '.pdf', '.png', '.jpg', '.jpeg', '.svg']
-    #     file_paths = []
-        
-    #     for root, _, files in os.walk(directory_path):
-    #         for file in files:
-    #             if any(file.lower().endswith(ext) for ext in supported_extensions):
-    #                 file_paths.append(os.path.join(root, file))
-        
-    #     return file_paths
+            logger.debug("No proxy settings detected")
 
     def setup_vector_store(self, class_name="Documents_llama"):
         """Set Weaviate vector storage"""
-        # if self.client.collections.exists(class_name):
-        #     self.client.collections.delete(class_name)
-        #     print(f'Collection {class_name} has been deleted!')
         if not self.client.collections.exists(class_name):
             # Set collention
             self.client.collections.create(
@@ -120,22 +103,18 @@ class WeaviateAutoRetriever:
     
     def load_and_process_documents(self, directory_path):
         """Loading and processing documents"""
-        # Loading files in multiple formats using SimpleCatalogReader
         reader = SimpleDirectoryReader(
             input_dir=directory_path,
             recursive=True,
-            # required_exts=[".txt", ".docx", ".pdf", ".jpg", ".jpeg", ".png"]
             required_exts=[".txt", ".docx", ".pdf"]
         )
         documents = reader.load_data()
         
-        # set meta data for doc
         for doc in documents:
             file_path = doc.metadata.get('file_path', '')
             doc.metadata['file_type'] = os.path.splitext(file_path)[1].lower().replace('.', '')
             doc.metadata['page_number'] = doc.metadata.get('page_label', 0)
         
-        # 
         node_parser = SentenceWindowNodeParser.from_defaults(
             window_size=3,
             window_metadata_key="window",
@@ -146,8 +125,7 @@ class WeaviateAutoRetriever:
         return nodes
     
     def load_and_process_documents2(self, directory_path):
-        """Loading and processing documents"""
-        # Loading files in multiple formats using SimpleCatalogReader
+        """Loading and processing documents (text only)"""
         reader = SimpleDirectoryReader(
             input_dir=directory_path,
             recursive=True,
@@ -155,16 +133,13 @@ class WeaviateAutoRetriever:
         )
         documents = reader.load_data()
 
-        print('load_and_process_documents2--------')
-        # print(documents)
+        logger.debug("Processing documents from %s", directory_path)
         
-        # set meta data for doc
         for doc in documents:
             file_path = doc.metadata.get('file_path', '')
             doc.metadata['file_type'] = os.path.splitext(file_path)[1].lower().replace('.', '')
             doc.metadata['page_number'] = doc.metadata.get('page_label', 0)
         
-        # 
         node_parser = SentenceWindowNodeParser.from_defaults(
             window_size=3,
             window_metadata_key="window",
@@ -172,8 +147,7 @@ class WeaviateAutoRetriever:
         )
         
         nodes = node_parser.get_nodes_from_documents(documents)
-        print('docs nodes--------')
-        print(nodes)
+        logger.debug("Generated %d nodes from documents", len(nodes))
         return nodes
     
     
@@ -233,47 +207,20 @@ class WeaviateAutoRetriever:
             
             mixed_files.append(f'{save_folder}/{file.split('/')[-1].split("\\")[-1]}')
             mixed_files.append(f'{save_folder}/{image_name}.txt')
-        print('Image docs ready.')
-
-
-        # Loading files in multiple formats using SimpleCatalogReader
-        # reader = SimpleDirectoryReader(
-        #     input_dir=directory_path,
-        #     recursive=True,
-        #     required_exts=[".jpg", ".jpeg", ".png"]
-        # )
-        # documents = reader.load_data()
         
-        # print('load_and_process_images--------')
-        # print(documents)
-
-        # # set meta data for doc
-        # for doc in documents:
-        #     file_path = doc.metadata.get('file_path', '')
-        #     doc.metadata['file_type'] = os.path.splitext(file_path)[1].lower().replace('.', '')
-        #     doc.metadata['page_number'] = doc.metadata.get('page_label', 0)
-        
-        # # 
-        # node_parser = SentenceWindowNodeParser.from_defaults(
-        #     window_size=3,
-        #     window_metadata_key="window",
-        #     original_text_metadata_key="original_text",
-        # )
-        
-        # nodes = node_parser.get_nodes_from_documents(documents)
+        logger.info("Processed %d image files", len(file_path))
 
         documents = SimpleDirectoryReader(input_files=mixed_files).load_data()
         simple_parser = SimpleFileNodeParser(chunk_size=1000000, chunk_overlap=0)
         nodes = simple_parser.get_nodes_from_documents(documents)
-        # add base64 image data to ImageNode
+        
         for temp_node in nodes:
             if isinstance(temp_node,ImageNode):
                 img_path = temp_node.metadata['file_path']
                 image_base64 = image_to_base64(img_path)
                 temp_node.image = image_base64
-        print('image nodes--------')
-        print(nodes)
         
+        logger.debug("Generated %d image nodes", len(nodes))
         return nodes
 
     def create_auto_retriever(self, index):
@@ -430,33 +377,31 @@ def main_upload(collection_name, documents_dir, file_paths):
     )
     
     try:
-        # upload docs
         retriever.upload_documents(documents_dir, file_paths, collection_name)
         
-        return(f'Uploaded: {[f.split('/')[-1].split('\\')[-1] for f in file_paths]} to Documents_llama')
+        file_names = [f.split('/')[-1].split('\\')[-1] for f in file_paths]
+        logger.info("Uploaded %d files to %s", len(file_names), collection_name)
+        return f'Uploaded: {file_names} to {collection_name}'
 
     finally:
         retriever.close()
 
-# query
 def main_query(collection_name, query):
-    # Initialize the automatic retriever
+    """Query documents from Weaviate collection"""
     retriever = WeaviateAutoRetriever(
         embedding_model_path="./models/bge-base-en-v1.5"
     )
     
     try:
-        # query
         response = retriever.query_documents(query, collection_name, use_auto_retriever=True)
-        # response = retriever.query_documents(query, collection_name, use_auto_retriever=False)
         
-        print(f"QUERY: {query}")
-        print(f"ANSWER: {response}")
+        logger.info("Query: %s", query)
+        logger.debug("Response: %s", response)
         
-        # # Show Source document
-        print("\nSource document:")
         for node in response.source_nodes:
-            print(f"- {node.metadata.get('file_path', 'unknown file')} (similarity: {node.score:.3f})")
+            logger.debug("Source: %s (similarity: %.3f)", 
+                        node.metadata.get('file_path', 'unknown file'), 
+                        node.score)
         
         return response    
 
@@ -467,23 +412,18 @@ def main_query(collection_name, query):
 from weaviate.classes.query import BM25Operator
 
 def search_bm25(collection_name, query_input):
-
+    """Perform BM25 search on Weaviate collection"""
     try:
         client = weaviate.connect_to_local()
-
-        jeopardy = client.collections.use(collection_name)
-        # print(jeopardy)
-        print(query_input)
-        response = jeopardy.query.bm25(
+        collection = client.collections.use(collection_name)
+        
+        logger.debug("BM25 search query: %s", query_input)
+        response = collection.query.bm25(
             query=query_input,
             operator=BM25Operator.or_(minimum_match=1),
             limit=3,
         )
 
-        # print(response)
-
-        # for o in response.objects:
-        #     print(o.properties)
         return response.objects
     finally:
         client.close()
@@ -506,12 +446,5 @@ def image_to_base64(img_path):
         return(base64_encoded.decode('utf-8'))
 
 if __name__ == "__main__":
-    ### upload
-    # documents_dir = "../docs_for_demo/FAQs"
-    # # documents_dir = "../docs_for_demo/reports"
-    # # documents_dir = "../docs_for_demo/awards"
-    # main_upload(documents_dir)
-
-    ### query
     query = "How is the hotline service acquired?"
-    main_query(query)
+    main_query("Documents_llama", query)

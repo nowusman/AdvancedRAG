@@ -12,10 +12,12 @@ import weaviate
 import weaviate.classes.config as wvcc
 import weaviateRetriever
 import weaviateCollectionManager
+import logging
 
-torch.classes.__path__ = []         # set to avoid error about torch when using streamlit
+torch.classes.__path__ = []
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "Documents_llama"
 PERSIST_DIR = os.getenv('PERSIST_DIR')
@@ -112,7 +114,7 @@ def main():
     query = st.text_input("Enter the query:")
     if st.button("Retrieve"):
         file_filter = weaviateRetriever.extract_file_filter(query)
-        print(f'File filter: {file_filter}')
+        logger.debug("File filter extracted: %s", file_filter)
 
         response = weaviateRetriever.search_bm25(COLLECTION_NAME, query)
         retrieved_image = []
